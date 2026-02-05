@@ -132,7 +132,7 @@
       "properties": {
         "opentunnel.relayServer": {
           "type": "string",
-          "default": "wss://opentunnel-relay.onrender.com/tunnel",
+          "default": "ws://localhost:8080/tunnel",
           "description": "WebSocket URL of your relay server. The default points to the official OpenTunnel relay. You can deploy your own relay server for complete control."
         },
         "opentunnel.defaultPort": {

@@ -23,7 +23,7 @@ export class TunnelManager implements vscode.Disposable {
 
     async startTunnel(localPort: number, subdomain?: string): Promise<TunnelInfo> {
         const config = vscode.workspace.getConfiguration('opentunnel');
-        const relayServer = config.get<string>('relayServer', 'wss://opentunnel-relay.onrender.com/tunnel');
+        const relayServer = config.get<string>('relayServer', 'ws://localhost:8080/tunnel');
         const autoReconnect = config.get<boolean>('autoReconnect', true);
         const maxReconnectAttempts = config.get<number>('maxReconnectAttempts', 5);
         const requestedSubdomain = subdomain || config.get<string>('subdomain', '');

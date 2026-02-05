@@ -432,6 +432,48 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         try {
             const response = await forwardRequest(connection, req.method || 'GET', forwardPath, headers, body);
 
+            // Decode the body
+            let responseBody: Buffer | null = null;
+            if (response.body) {
+                responseBody = Buffer.from(response.body, 'base64');
+            }
+
+            // Check if this is an HTML response - rewrite URLs for proper asset loading
+            const contentType = response.headers['content-type'] || '';
+            if (contentType.includes('text/html') && responseBody) {
+                const tunnelBase = `/t/${slug}`;
+                let html = responseBody.toString('utf-8');
+                
+                // Rewrite absolute URLs to include tunnel prefix
+                // This handles Flask's url_for() which generates /static/... paths
+                
+                // Rewrite src="/..." and href="/..." attributes (but not href="http..." or href="//...")
+                html = html.replace(/(src|href|action)=["']\/(?!\/)/g, `$1="${tunnelBase}/`);
+                
+                // Rewrite url(/...) in inline styles
+                html = html.replace(/url\(["']?\/(?!\/)/g, `url(${tunnelBase}/`);
+                
+                // Rewrite srcset="/..."
+                html = html.replace(/srcset=["']\/(?!\/)/g, `srcset="${tunnelBase}/`);
+                
+                // Rewrite data-src="/..." (lazy loading)
+                html = html.replace(/data-src=["']\/(?!\/)/g, `data-src="${tunnelBase}/`);
+                
+                // Rewrite fetch/ajax calls in inline scripts: fetch('/...')
+                html = html.replace(/fetch\(["']\/(?!\/)/g, `fetch('${tunnelBase}/`);
+                
+                // Also add a base tag for any relative URLs (without leading /)
+                if (html.includes('<head>')) {
+                    html = html.replace('<head>', `<head><base href="${tunnelBase}/">`);
+                } else if (html.includes('<head ')) {
+                    html = html.replace(/<head([^>]*)>/, `<head$1><base href="${tunnelBase}/">`);
+                }
+                
+                responseBody = Buffer.from(html, 'utf-8');
+                // Update content-length header
+                response.headers['content-length'] = responseBody.length.toString();
+            }
+
             // Set response headers
             for (const [key, value] of Object.entries(response.headers)) {
                 if (['transfer-encoding', 'connection', 'keep-alive'].includes(key.toLowerCase())) continue;
@@ -439,8 +481,8 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
             }
 
             res.writeHead(response.statusCode);
-            if (response.body) {
-                res.end(Buffer.from(response.body, 'base64'));
+            if (responseBody) {
+                res.end(responseBody);
             } else {
                 res.end();
             }

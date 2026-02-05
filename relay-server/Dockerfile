@@ -24,14 +24,15 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=builder /app/dist ./dist
 
-# Cloud platforms set PORT automatically; default to 8080
-ENV PORT=8080
+# Cloud platforms set PORT automatically; we don't set a default here
+# to let the platform's PORT take precedence
 ENV NODE_ENV=production
 
-EXPOSE 8080
+# Expose common ports (actual port is set by PORT env var)
+EXPOSE 8080 10000
 
-# Health check
+# Health check - use PORT env var
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT}/health || exit 1
+  CMD node -e "require('http').get('http://localhost:'+(process.env.PORT||8080)+'/health',r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"
 
 CMD ["node", "dist/server.js"]

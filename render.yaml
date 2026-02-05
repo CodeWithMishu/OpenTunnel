@@ -7,8 +7,5 @@ services:
     dockerfilePath: ./relay-server/Dockerfile
     dockerContext: ./relay-server
     plan: free
-    envVars:
-      - key: PORT
-        value: "8080"
-      # PUBLIC_URL is set automatically by Render via the external URL
+    # Render automatically sets PORT env var - don't override it
     healthCheckPath: /health

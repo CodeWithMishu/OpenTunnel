@@ -9,10 +9,17 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
+  <img src="https://img.shields.io/badge/VS%20Code-Extension-purple.svg" alt="VS Code Extension">
+  <img src="https://img.shields.io/badge/Open%20Source-❤️-red.svg" alt="Open Source">
+</p>
+
+<p align="center">
   <a href="#features">Features</a> •
   <a href="#installation">Installation</a> •
   <a href="#usage">Usage</a> •
   <a href="#self-hosting">Self-Hosting</a> •
+  <a href="#contributing">Contributing</a> •
   <a href="#philosophy">Philosophy</a>
 </p>
 
@@ -232,6 +239,16 @@ OpenTunnel is built on:
 | `OpenTunnel: Show Status` | Show current tunnel status |
 | `OpenTunnel: Show Dashboard` | Open the dashboard webview |
 
+## Security
+
+- **Local traffic only**: Your local server is proxied but never stored
+- **Temporary URLs**: Tunnel URLs are generated fresh each session
+- **No data logging**: The relay server doesn't log request contents
+- **Open source**: You can audit the entire codebase
+- **Self-hostable**: Run your own relay for complete control
+
+**Note**: Only expose development servers, never production databases or sensitive services.
+
 ## Troubleshooting
 
 ### "Connection refused" error
@@ -248,21 +265,31 @@ Ensure WebSocket connections are allowed through your firewall and reverse proxy
 
 ## Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+We welcome contributions! 🎉
 
+### Quick Start
 ```bash
-# Clone the repository
-git clone https://github.com/opentunnel/opentunnel-vscode
-
-# Install dependencies
+git clone https://github.com/YOUR-USERNAME/opentunnel
+cd opentunnel
 npm install
-
-# Start development
-npm run watch
-
-# Run extension
-# Press F5 in VS Code
+npm run compile
+# Press F5 in VS Code to launch Extension Development Host
 ```
+
+### Development Setup
+- **Extension**: TypeScript, VS Code API
+- **Relay Server**: Node.js, WebSocket, TypeScript
+- **Build**: `npm run compile` (extension), `npm run build` (relay)
+
+### Contributing Ideas
+- 🌍 Additional cloud platform configs (Heroku, DigitalOcean, etc.)
+- 🔍 More dev server auto-detection (Nuxt, SvelteKit, etc.)
+- 📱 Mobile-specific optimizations
+- 🎨 UI/UX improvements
+- 📚 Documentation & tutorials
+- 🌐 Internationalization
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ## License
 
@@ -272,4 +299,12 @@ MIT License - See [LICENSE](LICENSE) file.
 
 <p align="center">
   Made with ❤️ by the open source community
+</p>
+
+<p align="center">
+  <strong>⭐ Star this repo if you find it helpful!</strong>
+</p>
+
+<p align="center">
+  Questions? Issues? <a href="https://github.com/YOUR-USERNAME/opentunnel/issues">Open an issue</a> or start a <a href="https://github.com/YOUR-USERNAME/opentunnel/discussions">discussion</a>
 </p>
