@@ -1,0 +1,14 @@
+# render.yaml — One-click deploy to Render (https://render.com)
+# Click "New +" → "Blueprint" → paste your repo URL and Render reads this file.
+services:
+  - type: web
+    name: opentunnel-relay
+    runtime: docker
+    dockerfilePath: ./relay-server/Dockerfile
+    dockerContext: ./relay-server
+    plan: free
+    envVars:
+      - key: PORT
+        value: "8080"
+      # PUBLIC_URL is set automatically by Render via the external URL
+    healthCheckPath: /health

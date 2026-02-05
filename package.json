@@ -1,0 +1,192 @@
+{
+  "name": "opentunnel",
+  "displayName": "OpenTunnel",
+  "description": "Expose your localhost to the internet instantly — no accounts, no limits, no tracking",
+  "version": "1.0.0",
+  "publisher": "opentunnel",
+  "license": "MIT",
+  "icon": "assets/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/opentunnel/opentunnel-vscode"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Debuggers"
+  ],
+  "keywords": [
+    "tunnel",
+    "localhost",
+    "ngrok",
+    "expose",
+    "https",
+    "public url",
+    "share",
+    "development"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "opentunnel.startTunnel",
+        "title": "Start Tunnel",
+        "category": "OpenTunnel",
+        "icon": "$(radio-tower)"
+      },
+      {
+        "command": "opentunnel.stopTunnel",
+        "title": "Stop Tunnel",
+        "category": "OpenTunnel",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "opentunnel.showStatus",
+        "title": "Show Tunnel Status",
+        "category": "OpenTunnel",
+        "icon": "$(info)"
+      },
+      {
+        "command": "opentunnel.copyUrl",
+        "title": "Copy Tunnel URL",
+        "category": "OpenTunnel",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "opentunnel.openInBrowser",
+        "title": "Open Tunnel in Browser",
+        "category": "OpenTunnel",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "opentunnel.showDashboard",
+        "title": "Show Dashboard",
+        "category": "OpenTunnel",
+        "icon": "$(dashboard)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "opentunnel",
+          "title": "OpenTunnel",
+          "icon": "$(radio-tower)"
+        }
+      ]
+    },
+    "views": {
+      "opentunnel": [
+        {
+          "id": "opentunnel.tunnels",
+          "name": "Active Tunnels",
+          "icon": "$(radio-tower)",
+          "contextualTitle": "OpenTunnel"
+        },
+        {
+          "id": "opentunnel.requests",
+          "name": "Recent Requests",
+          "icon": "$(list-unordered)",
+          "contextualTitle": "OpenTunnel"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "opentunnel.tunnels",
+        "contents": "No active tunnels.\n[Start Tunnel](command:opentunnel.startTunnel)\n\nExpose your localhost instantly with a secure HTTPS URL."
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "opentunnel.startTunnel",
+          "when": "view == opentunnel.tunnels",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "opentunnel.copyUrl",
+          "when": "view == opentunnel.tunnels",
+          "group": "inline"
+        },
+        {
+          "command": "opentunnel.openInBrowser",
+          "when": "view == opentunnel.tunnels",
+          "group": "inline"
+        },
+        {
+          "command": "opentunnel.stopTunnel",
+          "when": "view == opentunnel.tunnels",
+          "group": "inline"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "OpenTunnel",
+      "properties": {
+        "opentunnel.relayServer": {
+          "type": "string",
+          "default": "wss://opentunnel-relay.onrender.com/tunnel",
+          "description": "WebSocket URL of your relay server. The default points to the official OpenTunnel relay. You can deploy your own relay server for complete control."
+        },
+        "opentunnel.defaultPort": {
+          "type": "number",
+          "default": 3000,
+          "description": "Default local port to expose when starting a tunnel."
+        },
+        "opentunnel.autoReconnect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically reconnect if the tunnel connection is lost."
+        },
+        "opentunnel.showNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show notifications for tunnel events."
+        },
+        "opentunnel.logRequests": {
+          "type": "boolean",
+          "default": true,
+          "description": "Log incoming requests in the Recent Requests view."
+        },
+        "opentunnel.maxReconnectAttempts": {
+          "type": "number",
+          "default": 5,
+          "description": "Maximum number of reconnection attempts before giving up."
+        },
+        "opentunnel.subdomain": {
+          "type": "string",
+          "default": "",
+          "description": "Request a specific slug for your tunnel URL (e.g. 'my-app' → /t/my-app). Leave empty for a random name."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.2",
+    "@vscode/vsce": "^2.22.0"
+  },
+  "dependencies": {
+    "ws": "^8.14.2"
+  }
+}

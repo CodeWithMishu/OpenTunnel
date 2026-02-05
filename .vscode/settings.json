@@ -1,0 +1,5 @@
+{
+    "opentunnel.relayServer": "wss://opentunnel-relay.onrender.com/tunnel",
+    "opentunnel.defaultPort": 3000,
+    "opentunnel.showNotifications": true
+}
