@@ -1,0 +1,13 @@
+# render-simple.yaml — Alternative Render config without Docker
+# Use this if the Docker build is failing
+services:
+  - type: web
+    name: opentunnel-relay
+    runtime: node
+    plan: free
+    buildCommand: cd relay-server && npm install && npm run build
+    startCommand: cd relay-server && node dist/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
