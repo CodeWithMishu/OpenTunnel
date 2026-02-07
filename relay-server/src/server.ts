@@ -456,14 +456,13 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     // Helper to rewrite URLs
     function rewriteUrl(url) {
         if (typeof url !== 'string') return url;
-        // Only rewrite absolute paths starting with / but not // or already prefixed
         if (url.startsWith('/') && !url.startsWith('//') && !url.startsWith(tunnelBase + '/') && url !== tunnelBase) {
             return tunnelBase + url;
         }
         return url;
     }
     
-    // Patch fetch BEFORE any code runs
+    // Patch fetch
     var originalFetch = window.fetch;
     window.fetch = function(input, init) {
         if (typeof input === 'string') {
@@ -481,7 +480,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         return originalXHROpen.apply(this, arguments);
     };
     
-    // Patch history.pushState and replaceState for SPA routing
+    // Patch history for SPA routing
     var originalPushState = history.pushState;
     history.pushState = function(state, title, url) {
         if (url) arguments[2] = rewriteUrl(url);
@@ -493,101 +492,95 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         return originalReplaceState.apply(this, arguments);
     };
     
-    // Patch dynamic imports (for Vite and ES modules)
-    // This is done by wrapping the native import()
-    var originalImport = null;
+    // Patch DOM element property setters
+    var patchProp = function(proto, prop) {
+        var desc = Object.getOwnPropertyDescriptor(proto, prop);
+        if (desc && desc.set) {
+            Object.defineProperty(proto, prop, {
+                set: function(val) { desc.set.call(this, rewriteUrl(val)); },
+                get: desc.get
+            });
+        }
+    };
+    patchProp(HTMLImageElement.prototype, 'src');
+    patchProp(HTMLScriptElement.prototype, 'src');
+    patchProp(HTMLLinkElement.prototype, 'href');
     
-    // Patch Image src
-    var originalImageSrc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
-    if (originalImageSrc && originalImageSrc.set) {
-        Object.defineProperty(HTMLImageElement.prototype, 'src', {
-            set: function(val) { originalImageSrc.set.call(this, rewriteUrl(val)); },
-            get: originalImageSrc.get
-        });
-    }
-    
-    // Patch script src  
-    var originalScriptSrc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
-    if (originalScriptSrc && originalScriptSrc.set) {
-        Object.defineProperty(HTMLScriptElement.prototype, 'src', {
-            set: function(val) { originalScriptSrc.set.call(this, rewriteUrl(val)); },
-            get: originalScriptSrc.get
-        });
-    }
-    
-    // Patch link href (for CSS)
-    var originalLinkHref = Object.getOwnPropertyDescriptor(HTMLLinkElement.prototype, 'href');
-    if (originalLinkHref && originalLinkHref.set) {
-        Object.defineProperty(HTMLLinkElement.prototype, 'href', {
-            set: function(val) { originalLinkHref.set.call(this, rewriteUrl(val)); },
-            get: originalLinkHref.get
-        });
-    }
-    
-    // Patch WebSocket for any WS connections
+    // Patch WebSocket — allow Vite HMR to fail gracefully
     var OriginalWebSocket = window.WebSocket;
     window.WebSocket = function(url, protocols) {
-        if (url && url.startsWith('/') && !url.startsWith('//')) {
-            var loc = window.location;
-            var wsProtocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
-            url = wsProtocol + '//' + loc.host + rewriteUrl(url);
+        try {
+            if (url && typeof url === 'string' && url.startsWith('/') && !url.startsWith('//')) {
+                var loc = window.location;
+                var wsProto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+                url = wsProto + '//' + loc.host + rewriteUrl(url);
+            }
+            return protocols ? new OriginalWebSocket(url, protocols) : new OriginalWebSocket(url);
+        } catch(e) {
+            console.warn('[OpenTunnel] WebSocket suppressed:', e.message);
+            // Return a dummy WebSocket-like object so Vite HMR does not crash
+            return { readyState: 3, send: function(){}, close: function(){}, addEventListener: function(){}, removeEventListener: function(){}, OPEN: 1, CLOSED: 3 };
         }
-        return protocols ? new OriginalWebSocket(url, protocols) : new OriginalWebSocket(url);
     };
     window.WebSocket.prototype = OriginalWebSocket.prototype;
-    Object.assign(window.WebSocket, OriginalWebSocket);
+    window.WebSocket.CONNECTING = 0; window.WebSocket.OPEN = 1;
+    window.WebSocket.CLOSING = 2;    window.WebSocket.CLOSED = 3;
     
-    // Patch EventSource for SSE
+    // Patch EventSource
     if (window.EventSource) {
-        var OriginalEventSource = window.EventSource;
-        window.EventSource = function(url, config) {
-            return new OriginalEventSource(rewriteUrl(url), config);
-        };
-        window.EventSource.prototype = OriginalEventSource.prototype;
+        var OrigES = window.EventSource;
+        window.EventSource = function(url, c) { return new OrigES(rewriteUrl(url), c); };
+        window.EventSource.prototype = OrigES.prototype;
     }
     
     console.log('[OpenTunnel] URL rewriting active for:', tunnelBase);
 })();
 </script>`;
                 
-                // Step 2: Rewrite ALL absolute URLs in the HTML
-                // Use a more comprehensive regex that handles all quote styles
-                
-                // Rewrite src="/" href="/" action="/" - avoid rewriting already-prefixed URLs
+                // Step 2: Rewrite absolute URL attributes in HTML tags
                 html = html.replace(new RegExp(`(src|href|action)=(["'])/(?!/|t/${slug}/)`, 'g'), `$1=$2${tunnelBase}/`);
-                
-                // Rewrite srcset="/..."
                 html = html.replace(new RegExp(`srcset=(["'])/(?!/|t/${slug}/)`, 'g'), `srcset=$1${tunnelBase}/`);
-                
-                // Rewrite data-src="/..." (lazy loading)
                 html = html.replace(new RegExp(`data-src=(["'])/(?!/|t/${slug}/)`, 'g'), `data-src=$1${tunnelBase}/`);
-                
-                // Rewrite url(/...) in inline styles
                 html = html.replace(new RegExp(`url\\((["']?)/(?!/|t/${slug}/)`, 'g'), `url($1${tunnelBase}/`);
-                
-                // Rewrite content="/" in meta tags (like og:image)
                 html = html.replace(new RegExp(`content=(["'])/(?!/|t/${slug}/)`, 'g'), `content=$1${tunnelBase}/`);
                 
-                // Step 3: Inject our script at the VERY beginning of <head>
-                // It MUST run before any other scripts including module scripts
-                if (html.includes('<!DOCTYPE') || html.includes('<!doctype')) {
-                    // Standard HTML - inject after doctype in head
-                    if (html.match(/<head[^>]*>/i)) {
-                        html = html.replace(/<head([^>]*)>/i, `<head$1>${urlRewriteScript}<base href="${tunnelBase}/">`);
-                    } else if (html.match(/<html[^>]*>/i)) {
-                        html = html.replace(/<html([^>]*)>/i, `<html$1><head>${urlRewriteScript}<base href="${tunnelBase}/"></head>`);
+                // Step 3: CRITICAL — rewrite import statements INSIDE inline <script type="module"> blocks
+                // Vite injects: <script type="module">import { x } from "/@react-refresh"</script>
+                // These inline imports MUST be rewritten or the browser will 404 on them
+                html = html.replace(
+                    /(<script[^>]*type\s*=\s*["']module["'][^>]*>)([\s\S]*?)(<\/script>)/gi,
+                    (match: string, openTag: string, scriptBody: string, closeTag: string) => {
+                        // Rewrite import ... from "/..." patterns inside the inline module
+                        let rewritten = scriptBody.replace(
+                            new RegExp(`from\\s*(["'])/(?!/|t/${slug}/)`, 'g'),
+                            `from $1${tunnelBase}/`
+                        );
+                        // Rewrite bare side-effect imports: import "/path"
+                        rewritten = rewritten.replace(
+                            new RegExp(`import\\s+(["'])/(?!/|t/${slug}/)`, 'g'),
+                            `import $1${tunnelBase}/`
+                        );
+                        // Rewrite import("/...") dynamic imports
+                        rewritten = rewritten.replace(
+                            new RegExp(`import\\(\\s*(["'])/(?!/|t/${slug}/)`, 'g'),
+                            `import($1${tunnelBase}/`
+                        );
+                        return openTag + rewritten + closeTag;
                     }
-                } else if (html.match(/<head[^>]*>/i)) {
-                    html = html.replace(/<head([^>]*)>/i, `<head$1>${urlRewriteScript}<base href="${tunnelBase}/">`);
+                );
+                
+                // Step 4: Inject our script at the VERY beginning of <head>
+                if (html.match(/<head[^>]*>/i)) {
+                    html = html.replace(/<head([^>]*)>/i, `<head$1>${urlRewriteScript}`);
+                } else if (html.match(/<html[^>]*>/i)) {
+                    html = html.replace(/<html([^>]*)>/i, `<html$1><head>${urlRewriteScript}</head>`);
                 } else if (html.match(/<body[^>]*>/i)) {
                     html = html.replace(/<body([^>]*)>/i, `<body$1>${urlRewriteScript}`);
                 } else {
-                    // Fallback - prepend to HTML
                     html = urlRewriteScript + html;
                 }
                 
                 responseBody = Buffer.from(html, 'utf-8');
-                // Update content-length header
                 response.headers['content-length'] = responseBody.length.toString();
             }
 
@@ -597,35 +590,36 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
                 const tunnelBase = `/t/${slug}`;
                 let js = responseBody.toString('utf-8');
                 
-                // Rewrite static import statements: import xxx from "/path" or from '/path'
-                // Avoid double-prefixing by checking if already prefixed
                 const avoidPrefix = `/(?!/|t/${slug}/)`;
                 
+                // Rewrite import ... from "/..."
                 js = js.replace(new RegExp(`from\\s*(['"])${avoidPrefix}`, 'g'), `from $1${tunnelBase}/`);
+                                // Rewrite bare side-effect imports: import "/path" (Vite uses these for CSS and env)
+                js = js.replace(new RegExp(`import\\s+(['"])${avoidPrefix}`, 'g'), `import $1${tunnelBase}/`);
+                                // Rewrite dynamic imports: import("/path")
+                js = js.replace(new RegExp(`import\\(\\s*(['"\`])${avoidPrefix}`, 'g'), `import($1${tunnelBase}/`);
                 
-                // Rewrite dynamic imports: import("/path") or import('/path') or import(`/path`)
-                js = js.replace(new RegExp(`import\\(\\s*(['"'\`])${avoidPrefix}`, 'g'), `import($1${tunnelBase}/`);
+                // Rewrite fetch calls: fetch("/api/...")
+                js = js.replace(new RegExp(`fetch\\(\\s*(['"\`])${avoidPrefix}`, 'g'), `fetch($1${tunnelBase}/`);
                 
-                // Rewrite fetch calls: fetch("/api/...") fetch('/api/...') fetch(`/api/...`)
-                js = js.replace(new RegExp(`fetch\\(\\s*(['"'\`])${avoidPrefix}`, 'g'), `fetch($1${tunnelBase}/`);
+                // Rewrite new URL("/path", ...)
+                js = js.replace(new RegExp(`new\\s+URL\\(\\s*(['"\`])${avoidPrefix}`, 'g'), `new URL($1${tunnelBase}/`);
                 
-                // Rewrite axios calls: axios.get("/...") axios.post("/...")
-                js = js.replace(new RegExp(`axios\\.(get|post|put|patch|delete)\\(\\s*(['"'\`])${avoidPrefix}`, 'g'), `axios.$1($2${tunnelBase}/`);
-                
-                // Rewrite new URL("/path", ...) patterns
-                js = js.replace(new RegExp(`new\\s+URL\\(\\s*(['"'\`])${avoidPrefix}`, 'g'), `new URL($1${tunnelBase}/`);
-                
-                // Rewrite XMLHttpRequest.open calls: .open("GET", "/api/...")
-                js = js.replace(new RegExp(`\\.open\\(\\s*(['"])([A-Z]+)\\1\\s*,\\s*(['"'\`])${avoidPrefix}`, 'g'), `.open($1$2$1, $3${tunnelBase}/`);
-                
-                // Rewrite string assignments like: url = "/api/..."
-                js = js.replace(new RegExp(`(url|href|src|action)\\s*=\\s*(['"'\`])${avoidPrefix}`, 'gi'), `$1 = $2${tunnelBase}/`);
-                
-                // Rewrite template literal URLs: `/api/${id}`
-                js = js.replace(new RegExp('\`' + avoidPrefix, 'g'), `\`${tunnelBase}/`);
-                
-                // Rewrite sourceMappingURL comments
+                // Rewrite sourceMappingURL
                 js = js.replace(new RegExp(`//# sourceMappingURL=${avoidPrefix}`, 'g'), `//# sourceMappingURL=${tunnelBase}/`);
+                
+                // SPECIAL: Handle Vite's @vite/client and @react-refresh
+                // Their WebSocket connections will fail through a tunnel and crash the entire app.
+                // We wrap WebSocket creation in try-catch so HMR failure doesn't kill the page.
+                if (forwardPath.includes('@vite/client')) {
+                    // Store original WebSocket ref before our HTML-injected patch
+                    js = `if(!window.__OrigWS)window.__OrigWS=WebSocket;\n` + js;
+                    // Replace all new WebSocket(...) with a safe wrapper
+                    js = js.replace(
+                        /new\s+WebSocket\s*\(/g, 
+                        `new (function(__wsUrl,__wsPr){try{return new(window.__OrigWS||WebSocket)(__wsUrl,__wsPr)}catch(e){console.warn("[OpenTunnel] HMR suppressed");return{readyState:3,send:function(){},close:function(){},addEventListener:function(t,h){if(t==="close"||t==="error")setTimeout(function(){try{h({type:t})}catch(e){}},100)},removeEventListener:function(){},OPEN:1,CLOSED:3}}})(` 
+                    );
+                }
                 
                 responseBody = Buffer.from(js, 'utf-8');
                 response.headers['content-length'] = responseBody.length.toString();
