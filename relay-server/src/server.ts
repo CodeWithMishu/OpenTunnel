@@ -573,6 +573,46 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
                 response.headers['content-length'] = responseBody.length.toString();
             }
 
+            // Also rewrite JavaScript/TypeScript files for ES module imports
+            // Vite and other bundlers use import statements with absolute paths
+            if ((contentType.includes('javascript') || contentType.includes('typescript')) && responseBody) {
+                const tunnelBase = `/t/${slug}`;
+                let js = responseBody.toString('utf-8');
+                
+                // Rewrite static import statements: import xxx from "/path"
+                js = js.replace(/from\s+["']\/(?!\/)/g, `from "${tunnelBase}/`);
+                
+                // Rewrite dynamic imports: import("/path")
+                js = js.replace(/import\(["']\/(?!\/)/g, `import("${tunnelBase}/`);
+                
+                // Rewrite fetch calls in JS: fetch("/api/...")
+                js = js.replace(/fetch\(["']\/(?!\/)/g, `fetch("${tunnelBase}/`);
+                
+                // Rewrite new URL("/path", import.meta.url) patterns
+                js = js.replace(/new\s+URL\(["']\/(?!\/)/g, `new URL("${tunnelBase}/`);
+                
+                // Rewrite sourceMappingURL comments
+                js = js.replace(/\/\/# sourceMappingURL=\/(?!\/)/g, `//# sourceMappingURL=${tunnelBase}/`);
+                
+                responseBody = Buffer.from(js, 'utf-8');
+                response.headers['content-length'] = responseBody.length.toString();
+            }
+
+            // Rewrite CSS files for url() references
+            if (contentType.includes('text/css') && responseBody) {
+                const tunnelBase = `/t/${slug}`;
+                let css = responseBody.toString('utf-8');
+                
+                // Rewrite url(/...) references
+                css = css.replace(/url\(["']?\/(?!\/)/g, `url(${tunnelBase}/`);
+                
+                // Rewrite @import "/..."
+                css = css.replace(/@import\s+["']\/(?!\/)/g, `@import "${tunnelBase}/`);
+                
+                responseBody = Buffer.from(css, 'utf-8');
+                response.headers['content-length'] = responseBody.length.toString();
+            }
+
             // Set response headers
             for (const [key, value] of Object.entries(response.headers)) {
                 if (['transfer-encoding', 'connection', 'keep-alive'].includes(key.toLowerCase())) continue;
