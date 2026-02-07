@@ -63,6 +63,9 @@ export class TunnelClient extends EventEmitter {
                 'tunnel',
                 '--url', `http://localhost:${this.options.localPort}`,
                 '--no-autoupdate',
+                // Rewrite the Host header to localhost so dev servers like
+                // Vite, Webpack, etc. don't block the request as an unknown host.
+                '--http-host-header', 'localhost',
             ];
 
             this.logger.info(`Starting: ${this.options.cloudflaredPath} ${args.join(' ')}`);
