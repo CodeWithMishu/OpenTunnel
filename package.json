@@ -40,10 +40,22 @@
         "icon": "$(radio-tower)"
       },
       {
+        "command": "opentunnel.startStaticTunnel",
+        "title": "Start Tunnel (Static Files)",
+        "category": "OpenTunnel",
+        "icon": "$(folder)"
+      },
+      {
         "command": "opentunnel.stopTunnel",
         "title": "Stop Tunnel",
         "category": "OpenTunnel",
         "icon": "$(debug-stop)"
+      },
+      {
+        "command": "opentunnel.stopAllTunnels",
+        "title": "Stop All Tunnels",
+        "category": "OpenTunnel",
+        "icon": "$(stop-circle)"
       },
       {
         "command": "opentunnel.showStatus",
@@ -68,6 +80,12 @@
         "title": "Show Dashboard",
         "category": "OpenTunnel",
         "icon": "$(dashboard)"
+      },
+      {
+        "command": "opentunnel.refreshTunnels",
+        "title": "Refresh Tunnels",
+        "category": "OpenTunnel",
+        "icon": "$(refresh)"
       }
     ],
     "viewsContainers": {
@@ -98,7 +116,7 @@
     "viewsWelcome": [
       {
         "view": "opentunnel.tunnels",
-        "contents": "No active tunnels.\n[Start Tunnel](command:opentunnel.startTunnel)\n\nExpose your localhost instantly with a secure HTTPS URL."
+        "contents": "No active tunnels.\n[$(radio-tower) Start Tunnel](command:opentunnel.startTunnel)\n[$(folder) Serve Static Files](command:opentunnel.startStaticTunnel)\n\nExpose your localhost or static files instantly with a public HTTPS URL."
       }
     ],
     "menus": {
@@ -106,24 +124,70 @@
         {
           "command": "opentunnel.startTunnel",
           "when": "view == opentunnel.tunnels",
-          "group": "navigation"
+          "group": "navigation@1"
+        },
+        {
+          "command": "opentunnel.startStaticTunnel",
+          "when": "view == opentunnel.tunnels",
+          "group": "navigation@2"
+        },
+        {
+          "command": "opentunnel.stopAllTunnels",
+          "when": "view == opentunnel.tunnels",
+          "group": "navigation@3"
+        },
+        {
+          "command": "opentunnel.refreshTunnels",
+          "when": "view == opentunnel.tunnels",
+          "group": "navigation@4"
+        },
+        {
+          "command": "opentunnel.showDashboard",
+          "when": "view == opentunnel.tunnels",
+          "group": "2_dashboard"
         }
       ],
       "view/item/context": [
         {
           "command": "opentunnel.copyUrl",
-          "when": "view == opentunnel.tunnels",
-          "group": "inline"
+          "when": "view == opentunnel.tunnels && viewItem == tunnel",
+          "group": "inline@1"
         },
         {
           "command": "opentunnel.openInBrowser",
-          "when": "view == opentunnel.tunnels",
-          "group": "inline"
+          "when": "view == opentunnel.tunnels && viewItem == tunnel",
+          "group": "inline@2"
         },
         {
           "command": "opentunnel.stopTunnel",
-          "when": "view == opentunnel.tunnels",
-          "group": "inline"
+          "when": "view == opentunnel.tunnels && viewItem == tunnel",
+          "group": "inline@3"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "opentunnel.startTunnel",
+          "group": "OpenTunnel"
+        },
+        {
+          "command": "opentunnel.startStaticTunnel",
+          "group": "OpenTunnel"
+        },
+        {
+          "command": "opentunnel.stopTunnel",
+          "group": "OpenTunnel"
+        },
+        {
+          "command": "opentunnel.stopAllTunnels",
+          "group": "OpenTunnel"
+        },
+        {
+          "command": "opentunnel.showStatus",
+          "group": "OpenTunnel"
+        },
+        {
+          "command": "opentunnel.showDashboard",
+          "group": "OpenTunnel"
         }
       ]
     },

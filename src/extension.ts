@@ -5,17 +5,20 @@
  */
 
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { TunnelManager } from './tunnelManager';
 import { StatusBarManager } from './ui/statusBar';
 import { TunnelTreeProvider, RequestTreeProvider } from './ui/treeView';
 import { Logger } from './utils/logger';
 import { detectRunningServers, getPortLabel, DetectedPort } from './utils/portScanner';
+import { getStaticServerManager, StaticServerManager, StaticServerInfo } from './staticServer';
 
 let tunnelManager: TunnelManager;
 let statusBarManager: StatusBarManager;
 let tunnelTreeProvider: TunnelTreeProvider;
 let requestTreeProvider: RequestTreeProvider;
 let logger: Logger;
+let staticServerManager: StaticServerManager;
 
 export function activate(context: vscode.ExtensionContext): void {
     logger = new Logger('OpenTunnel');
@@ -38,14 +41,20 @@ export function activate(context: vscode.ExtensionContext): void {
         showCollapseAll: true
     });
 
+    // Initialize static server manager
+    staticServerManager = getStaticServerManager();
+
     // Register commands
     const commands = [
         vscode.commands.registerCommand('opentunnel.startTunnel', () => startTunnel()),
+        vscode.commands.registerCommand('opentunnel.startStaticTunnel', () => startStaticTunnel()),
         vscode.commands.registerCommand('opentunnel.stopTunnel', (item?: any) => stopTunnel(item)),
+        vscode.commands.registerCommand('opentunnel.stopAllTunnels', () => stopAllTunnels()),
         vscode.commands.registerCommand('opentunnel.showStatus', () => showStatus()),
         vscode.commands.registerCommand('opentunnel.copyUrl', (item?: any) => copyUrl(item)),
         vscode.commands.registerCommand('opentunnel.openInBrowser', (item?: any) => openInBrowser(item)),
-        vscode.commands.registerCommand('opentunnel.showDashboard', () => showDashboard(context))
+        vscode.commands.registerCommand('opentunnel.showDashboard', () => showDashboard(context)),
+        vscode.commands.registerCommand('opentunnel.refreshTunnels', () => tunnelTreeProvider.refresh())
     ];
 
     // Subscribe to tunnel events
@@ -239,8 +248,147 @@ async function stopTunnel(item?: any): Promise<void> {
     }
 
     if (tunnelId) {
+        // Get tunnel info before stopping (to get the port)
+        const tunnel = tunnelManager.getTunnelById(tunnelId);
+        const port = tunnel?.localPort;
+        
+        // Stop the tunnel
         tunnelManager.stopTunnel(tunnelId);
+        
+        // Also stop any static server on that port
+        if (port) {
+            staticServerManager.stopServer(port);
+        }
         vscode.window.showInformationMessage('Tunnel stopped.');
+    }
+}
+
+async function stopAllTunnels(): Promise<void> {
+    const tunnels = tunnelManager.getActiveTunnels();
+    
+    if (tunnels.length === 0) {
+        vscode.window.showInformationMessage('No active tunnels to stop.');
+        return;
+    }
+
+    // Stop all tunnels
+    tunnelManager.stopAllTunnels();
+    
+    // Stop all static servers
+    staticServerManager.stopAllServers();
+    
+    vscode.window.showInformationMessage(`Stopped ${tunnels.length} tunnel(s).`);
+}
+
+async function startStaticTunnel(): Promise<void> {
+    // Ask user to select a folder
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    
+    let folderPath: string | undefined;
+    
+    const options: vscode.QuickPickItem[] = [];
+    
+    // Add workspace folders as options
+    if (workspaceFolders && workspaceFolders.length > 0) {
+        for (const folder of workspaceFolders) {
+            options.push({
+                label: `$(folder) ${folder.name}`,
+                description: folder.uri.fsPath,
+                detail: 'Use this workspace folder',
+            });
+        }
+    }
+    
+    // Add option to browse for folder
+    options.push({
+        label: '$(folder-opened) Browse for folder...',
+        description: '',
+        detail: 'Select a different folder to serve',
+    });
+    
+    const selection = await vscode.window.showQuickPick(options, {
+        placeHolder: 'Select folder to serve as static website',
+        title: 'OpenTunnel: Start Static Server'
+    });
+    
+    if (!selection) {
+        return; // User cancelled
+    }
+    
+    if (selection.description) {
+        folderPath = selection.description;
+    } else {
+        // Browse for folder
+        const result = await vscode.window.showOpenDialog({
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: false,
+            openLabel: 'Select Folder to Serve',
+            title: 'Select Static Files Folder'
+        });
+        
+        if (!result || result.length === 0) {
+            return;
+        }
+        folderPath = result[0].fsPath;
+    }
+    
+    if (!folderPath) {
+        return;
+    }
+    
+    // Check if index.html exists, warn if not
+    const indexPath = path.join(folderPath, 'index.html');
+    const hasIndex = require('fs').existsSync(indexPath);
+    
+    if (!hasIndex) {
+        const proceed = await vscode.window.showWarningMessage(
+            'No index.html found in the selected folder. Continue anyway?',
+            'Yes, Continue',
+            'Cancel'
+        );
+        if (proceed !== 'Yes, Continue') {
+            return;
+        }
+    }
+    
+    // Ask about SPA mode
+    const spaMode = await vscode.window.showQuickPick([
+        { label: '$(file-code) Regular Static Site', description: 'Serve files as-is', spa: false },
+        { label: '$(browser) Single Page App (SPA)', description: 'All routes fallback to index.html', spa: true }
+    ], {
+        placeHolder: 'What type of project is this?'
+    });
+    
+    if (!spaMode) {
+        return;
+    }
+    
+    try {
+        // Start static server
+        await vscode.window.withProgress(
+            { 
+                location: vscode.ProgressLocation.Notification, 
+                title: 'Starting static server...' 
+            },
+            async () => {
+                const serverInfo = await staticServerManager.startServer({
+                    rootDir: folderPath!,
+                    spa: (spaMode as any).spa,
+                    cors: true
+                });
+                
+                logger.info(`Static server started on port ${serverInfo.port}`);
+                
+                // Now start tunnel to this server
+                statusBarManager.setConnecting();
+                await tunnelManager.startTunnel(serverInfo.port);
+            }
+        );
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        vscode.window.showErrorMessage(`Failed to start static server: ${message}`);
+        statusBarManager.setDisconnected();
     }
 }
 
@@ -525,5 +673,12 @@ function getDashboardHtml(tunnels: any[], requests: any[]): string {
 
 export function deactivate(): void {
     logger?.info('OpenTunnel extension is deactivating...');
+    
+    // Stop all static servers
+    if (staticServerManager) {
+        staticServerManager.stopAllServers();
+    }
+    
+    // Stop all tunnels
     tunnelManager?.dispose();
 }
