@@ -12,6 +12,7 @@ import { TunnelTreeProvider, RequestTreeProvider } from './ui/treeView';
 import { Logger } from './utils/logger';
 import { detectRunningServers, getPortLabel, DetectedPort } from './utils/portScanner';
 import { getStaticServerManager, StaticServerManager, StaticServerInfo } from './staticServer';
+import { ensureCloudflared } from './cloudflared';
 
 let tunnelManager: TunnelManager;
 let statusBarManager: StatusBarManager;
@@ -19,10 +20,13 @@ let tunnelTreeProvider: TunnelTreeProvider;
 let requestTreeProvider: RequestTreeProvider;
 let logger: Logger;
 let staticServerManager: StaticServerManager;
+let extensionContext: vscode.ExtensionContext;
 
 export function activate(context: vscode.ExtensionContext): void {
     logger = new Logger('OpenTunnel');
     logger.info('OpenTunnel extension is activating...');
+
+    extensionContext = context;
 
     // Initialize managers
     tunnelManager = new TunnelManager(context);
@@ -208,6 +212,11 @@ async function startTunnel(): Promise<void> {
 
     try {
         statusBarManager.setConnecting();
+        
+        // Ensure cloudflared is available (downloads if needed)
+        const cloudflaredPath = await ensureCloudflared(extensionContext);
+        tunnelManager.setCloudflaredPath(cloudflaredPath);
+        
         await tunnelManager.startTunnel(port);
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
@@ -379,6 +388,10 @@ async function startStaticTunnel(): Promise<void> {
                 });
                 
                 logger.info(`Static server started on port ${serverInfo.port}`);
+                
+                // Ensure cloudflared is available
+                const cloudflaredPath = await ensureCloudflared(extensionContext);
+                tunnelManager.setCloudflaredPath(cloudflaredPath);
                 
                 // Now start tunnel to this server
                 statusBarManager.setConnecting();

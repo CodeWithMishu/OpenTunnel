@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>Expose Localhost Without Lock-In</strong>
+  <strong>Expose Localhost to the Internet — Powered by Cloudflare Tunnel</strong>
 </p>
 
 <p align="center">
@@ -18,56 +18,45 @@
   <a href="#features">Features</a> •
   <a href="#installation">Installation</a> •
   <a href="#usage">Usage</a> •
-  <a href="#self-hosting">Self-Hosting</a> •
-  <a href="#contributing">Contributing</a> •
-  <a href="#philosophy">Philosophy</a>
+  <a href="#how-it-works">How It Works</a> •
+  <a href="#contributing">Contributing</a>
 </p>
 
 ---
 
-**OpenTunnel** is a free and open-source VS Code extension that turns your local development server into a temporary public URL — instantly.
+**OpenTunnel** is a free and open-source VS Code extension that turns your local development server into a public HTTPS URL — instantly. Powered by Cloudflare's free Quick Tunnels.
 
-- ✅ No accounts
-- ✅ No artificial limits
-- ✅ No tracking
-- ✅ Works from **any device on the internet**
-
-As long as your system is online and the extension is running, your local app is accessible from any device via a public URL.
+- ✅ **No accounts** — no sign-up, no API keys
+- ✅ **No relay server** — direct Cloudflare tunnel, nothing to deploy
+- ✅ **Free HTTPS** — every URL is `https://`
+- ✅ **Works with ALL frameworks** — React, Vite, Next.js, Django, Flask, Express, anything
+- ✅ **Zero configuration** — just click and share
 
 ## Features
 
 | Feature | Description |
 |---------|-------------|
-| 🖱️ **One-click localhost exposure** | Start a tunnel directly from VS Code |
-| 🌍 **Publicly accessible URLs** | Share with anyone, anywhere on the internet |
-| 🔍 **Auto-detects running servers** | Finds your dev servers automatically — no manual port entry |
-| 🆓 **No signup or API keys** | Just install and use |
-| ⏱️ **Temporary URLs per session** | URLs are generated fresh each time |
-| 🌐 **Works with any framework** | React, Node, Django, Flask, Rails, PHP... |
-| 🏠 **Self-hostable relay server** | Run your own infrastructure |
-| 📱 **Works on mobile** | Test on phones, tablets, any device |
+| 🖱️ **One-click tunneling** | Start a tunnel directly from VS Code |
+| 🌍 **Public HTTPS URLs** | Get a URL like `https://random-words.trycloudflare.com` |
+| 🔍 **Auto-detects servers** | Finds your running dev servers automatically |
+| 📁 **Static file serving** | Serve any folder as a website with one click |
+| 📊 **Live request monitor** | See incoming HTTP requests in real-time |
+| 📋 **Dashboard** | Full overview of all active tunnels |
+| 🔌 **Works with everything** | React, Vue, Vite, Next.js, Express, Django, Flask, Rails, PHP... |
 
 ## Installation
-
-### From VS Code Marketplace
-
-1. Open VS Code
-2. Go to Extensions (`Ctrl+Shift+X` / `Cmd+Shift+X`)
-3. Search for "OpenTunnel"
-4. Click Install
 
 ### From VSIX
 
 ```bash
-# Download the latest .vsix from releases
-code --install-extension opentunnel-1.0.0.vsix
+code --install-extension opentunnel-2.0.0.vsix
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/opentunnel/opentunnel-vscode
-cd opentunnel-vscode
+git clone https://github.com/CodeWithMishu/OpenTunnel
+cd OpenTunnel
 npm install
 npm run compile
 # Press F5 in VS Code to launch Extension Development Host
@@ -78,162 +67,75 @@ npm run compile
 ### Starting a Tunnel
 
 1. **Command Palette**: Press `Ctrl+Shift+P` / `Cmd+Shift+P` and type "OpenTunnel: Start Tunnel"
-2. **Status Bar**: Click the "OpenTunnel" item in the status bar
-3. **Activity Bar**: Click the OpenTunnel icon and use the "Start Tunnel" button
+2. **Activity Bar**: Click the OpenTunnel icon in the sidebar and use the "Start Tunnel" button
+3. **Status Bar**: Click the "OpenTunnel" item
 
-Enter the local port your dev server is running on (e.g., 3000, 8080, 5000).
+The extension will:
+1. Auto-detect running servers on your machine
+2. Let you pick which port to expose
+3. Download `cloudflared` automatically (one-time, ~30MB)
+4. Give you a public HTTPS URL
+
+### Static File Serving
+
+Want to share a folder of HTML/CSS/JS files?
+
+1. Run "OpenTunnel: Start Tunnel (Static Files)"
+2. Pick a folder
+3. Choose Regular or SPA mode
+4. Get your public URL!
 
 ### Managing Tunnels
 
-- **Copy URL**: Click the status bar item or use "OpenTunnel: Copy URL"
-- **Stop Tunnel**: Use the command palette or click the stop button in the sidebar
-- **View Dashboard**: "OpenTunnel: Show Dashboard" for a full overview
+- **Copy URL**: Click the copy icon or use "OpenTunnel: Copy URL"
+- **Open in Browser**: Click the browser icon
+- **Stop Tunnel**: Use the stop button in the sidebar
+- **Dashboard**: Run "OpenTunnel: Show Dashboard" for a full overview
 
 ### Configuration
 
-Open VS Code Settings and search for "OpenTunnel":
-
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `opentunnel.relayServer` | `ws://localhost:8080/tunnel` | Relay server URL. Change to `wss://your-server.com/tunnel` for public access |
-| `opentunnel.defaultPort` | `3000` | Default port (auto-detect overrides this) |
-| `opentunnel.autoReconnect` | `true` | Auto-reconnect on disconnect |
-| `opentunnel.showNotifications` | `true` | Show notification on tunnel start |
-| `opentunnel.subdomain` | `` | Request specific slug (e.g. `my-app` → `/t/my-app`) |
-
-## Self-Hosting
-
-The relay server is what makes your tunnel accessible. You have three modes:
-
-### 🏠 Mode 1: Local Network Only (LAN/WiFi)
-
-Good for testing on phones or other devices on the **same WiFi**:
-
-```bash
-cd relay-server
-npm install
-npm run build
-npm start
-```
-
-URLs will be like `http://192.168.1.42:8080/t/swift-cloud-123` — only reachable from your local network.
-
-### 🌍 Mode 2: Public Internet (Free Cloud Deploy)
-
-To make tunnels accessible to **anyone on the internet**, deploy the relay server to a free cloud platform:
-
-#### Option A: Render (recommended — easiest)
-
-1. Push this repo to GitHub
-2. Go to [render.com](https://render.com) → **New +** → **Blueprint**
-3. Connect your GitHub repo — Render reads the `render.yaml` automatically
-4. Click **Deploy** → you'll get a URL like `https://opentunnel-relay.onrender.com`
-5. In VS Code settings, set:
-   ```json
-   "opentunnel.relayServer": "wss://opentunnel-relay.onrender.com/tunnel"
-   ```
-
-#### Option B: Railway
-
-1. Go to [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub**
-2. Select your repo → Railway reads `railway.json`
-3. Set the env var `PUBLIC_URL` to your Railway URL (e.g. `https://opentunnel-relay.up.railway.app`)
-4. In VS Code settings, set:
-   ```json
-   "opentunnel.relayServer": "wss://opentunnel-relay.up.railway.app/tunnel"
-   ```
-
-#### Option C: Fly.io
-
-```bash
-cd relay-server
-fly launch --name opentunnel-relay
-fly deploy
-```
-
-Then set:
-```json
-"opentunnel.relayServer": "wss://opentunnel-relay.fly.dev/tunnel"
-```
-
-#### Option D: Any VPS / Docker Host
-
-```bash
-cd relay-server
-docker build -t opentunnel-relay .
-docker run -d -p 8080:8080 -e PUBLIC_URL=https://yourdomain.com opentunnel-relay
-```
-
-### 🔧 Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `8080` | HTTP port (cloud platforms set this automatically) |
-| `PUBLIC_URL` | _(auto-detect)_ | Full public URL, e.g. `https://relay.example.com` |
-| `MAX_TUNNELS` | `1000` | Maximum simultaneous tunnels |
-| `REQUEST_TIMEOUT` | `30000` | Request timeout in ms |
-| `USE_HTTPS` | `false` | Enable built-in HTTPS (not needed behind cloud proxy) |
-| `SSL_CERT` / `SSL_KEY` | | Paths to SSL certificate files |
-
-Then configure the extension:
-```json
-{
-  "opentunnel.relayServer": "wss://your-server.com/tunnel"
-}
-```
+| `opentunnel.defaultPort` | `3000` | Default port when no server is auto-detected |
+| `opentunnel.showNotifications` | `true` | Show notifications when tunnel starts |
+| `opentunnel.logRequests` | `true` | Log incoming requests in the sidebar |
 
 ## How It Works
 
 ```
 ┌─────────────────┐       ┌──────────────────┐       ┌─────────────────┐
-│   Your Browser  │ ───▶  │   Relay Server   │ ◀──── │  VS Code Ext.   │
-│  (any device)   │       │  (public HTTPS)  │       │ (WebSocket)     │
+│   Any Browser   │ ───▶  │   Cloudflare     │ ───▶  │  VS Code +      │
+│  (any device)   │       │   Edge Network   │       │  cloudflared    │
 └─────────────────┘       └──────────────────┘       └─────────────────┘
-                                   │                         │
-                                   │                         │
-                                   └─────────────────────────┘
-                                              │
-                                              ▼
-                                   ┌─────────────────┐
-                                   │  localhost:3000 │
-                                   │  (your app)     │
-                                   └─────────────────┘
+                                                             │
+                                                             ▼
+                                                     ┌─────────────────┐
+                                                     │  localhost:3000  │
+                                                     │  (your app)     │
+                                                     └─────────────────┘
 ```
 
-1. VS Code extension connects to relay server via WebSocket
-2. Relay server assigns a unique public URL (e.g., `https://your-relay.onrender.com/t/swift-cloud-123`)
-3. HTTP requests to that URL are forwarded through the WebSocket
-4. Extension proxies requests to your local server
-5. Responses flow back the same way
+1. The extension starts `cloudflared tunnel --url http://localhost:PORT`
+2. Cloudflare assigns a free public URL (e.g., `https://happy-cat-abc123.trycloudflare.com`)
+3. All traffic flows through Cloudflare's edge network → your machine
+4. No relay server, no middleman, no data stored
 
-## Philosophy
+### Why Cloudflare Quick Tunnels?
 
-> Developers should not need to create accounts or accept hidden limits just to share their work.
-
-OpenTunnel is built on:
-
-- **Transparency**: Open source, no hidden code or tracking
-- **Simplicity**: One click to share your work
-- **Freedom**: No accounts, no limits, self-host if you want
-- **Community**: Built for developers, by developers
-
-## Comparison
-
-| Feature | OpenTunnel | ngrok (free) | localtunnel |
-|---------|------------|--------------|-------------|
-| No account needed | ✅ | ❌ | ✅ |
-| Open source | ✅ | ❌ | ✅ |
-| Self-hostable | ✅ | ❌ | ✅ |
-| VS Code integration | ✅ | ❌ | ❌ |
-| No bandwidth limits | ✅ | ❌ | ✅ |
-| Custom subdomains | ✅ | 💰 Paid | ✅ |
+- **Free forever** — Cloudflare's Quick Tunnels require no account and are completely free
+- **Subdomain-based** — Your app runs at the root `/`, so ALL frameworks work perfectly
+- **HTTPS included** — Every tunnel gets automatic TLS
+- **Fast** — Traffic goes through Cloudflare's global edge network
+- **Reliable** — Backed by Cloudflare's infrastructure
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `OpenTunnel: Start Tunnel` | Start a new tunnel |
-| `OpenTunnel: Stop Tunnel` | Stop an active tunnel |
+| `OpenTunnel: Start Tunnel` | Expose a running server |
+| `OpenTunnel: Start Tunnel (Static Files)` | Serve a folder as a website |
+| `OpenTunnel: Stop Tunnel` | Stop a specific tunnel |
+| `OpenTunnel: Stop All Tunnels` | Stop all active tunnels |
 | `OpenTunnel: Copy URL` | Copy tunnel URL to clipboard |
 | `OpenTunnel: Open in Browser` | Open tunnel URL in browser |
 | `OpenTunnel: Show Status` | Show current tunnel status |
@@ -241,70 +143,55 @@ OpenTunnel is built on:
 
 ## Security
 
-- **Local traffic only**: Your local server is proxied but never stored
-- **Temporary URLs**: Tunnel URLs are generated fresh each session
-- **No data logging**: The relay server doesn't log request contents
-- **Open source**: You can audit the entire codebase
-- **Self-hostable**: Run your own relay for complete control
+- **Temporary URLs**: Each tunnel gets a random URL, discarded when stopped
+- **No data logging**: Traffic flows directly through Cloudflare — OpenTunnel stores nothing
+- **Open source**: Audit the entire codebase
+- **Local only**: `cloudflared` runs on your machine, no cloud servers to manage
 
-**Note**: Only expose development servers, never production databases or sensitive services.
+> ⚠️ Only expose development servers. Never tunnel production databases or sensitive services.
 
 ## Troubleshooting
 
 ### "Connection refused" error
-Make sure your local development server is running on the specified port.
+Make sure your local dev server is running on the specified port before starting the tunnel.
 
-### Tunnel disconnects frequently
-Check your internet connection. Enable `opentunnel.autoReconnect` in settings.
+### Tunnel takes long to start
+The first run downloads `cloudflared` (~30MB). After that, it's cached and starts in seconds.
 
-### Custom subdomain not available
-The requested subdomain might already be in use. Try a different one or leave blank for random.
+### cloudflared download fails
+You can install cloudflared manually: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
 
-### Self-hosted server not working
-Ensure WebSocket connections are allowed through your firewall and reverse proxy.
+### URL not working
+Cloudflare Quick Tunnel URLs are temporary. If the tunnel process stops, the URL stops working. Just start a new tunnel.
 
 ## Contributing
 
 We welcome contributions! 🎉
 
-### Quick Start
 ```bash
-git clone https://github.com/YOUR-USERNAME/opentunnel
-cd opentunnel
+git clone https://github.com/CodeWithMishu/OpenTunnel
+cd OpenTunnel
 npm install
 npm run compile
-# Press F5 in VS Code to launch Extension Development Host
+# Press F5 to launch Extension Development Host
 ```
 
-### Development Setup
-- **Extension**: TypeScript, VS Code API
-- **Relay Server**: Node.js, WebSocket, TypeScript
-- **Build**: `npm run compile` (extension), `npm run build` (relay)
-
-### Contributing Ideas
-- 🌍 Additional cloud platform configs (Heroku, DigitalOcean, etc.)
-- 🔍 More dev server auto-detection (Nuxt, SvelteKit, etc.)
-- 📱 Mobile-specific optimizations
+### Ideas for contributions
+- 🔍 Better dev server auto-detection
+- 📱 Mobile testing optimizations
 - 🎨 UI/UX improvements
 - 📚 Documentation & tutorials
-- 🌐 Internationalization
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ## License
 
-MIT License - See [LICENSE](LICENSE) file.
+MIT License — See [LICENSE](LICENSE) file.
 
 ---
 
 <p align="center">
-  Made with ❤️ by the open source community
+  Made with ❤️ by <a href="https://github.com/CodeWithMishu">CodeWithMishu</a>
 </p>
 
 <p align="center">
   <strong>⭐ Star this repo if you find it helpful!</strong>
-</p>
-
-<p align="center">
-  Questions? Issues? <a href="https://github.com/YOUR-USERNAME/opentunnel/issues">Open an issue</a> or start a <a href="https://github.com/YOUR-USERNAME/opentunnel/discussions">discussion</a>
 </p>

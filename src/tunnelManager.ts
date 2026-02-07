@@ -15,18 +15,22 @@ export class TunnelManager implements vscode.Disposable {
     private logger: Logger;
     private context: vscode.ExtensionContext;
     private maxRequests: number = 100;
+    private cloudflaredPath: string = '';
 
     constructor(context: vscode.ExtensionContext) {
         this.context = context;
         this.logger = new Logger('TunnelManager');
     }
 
-    async startTunnel(localPort: number, subdomain?: string): Promise<TunnelInfo> {
-        const config = vscode.workspace.getConfiguration('opentunnel');
-        const relayServer = config.get<string>('relayServer', 'wss://opentunnel-relay.onrender.com/tunnel');
-        const autoReconnect = config.get<boolean>('autoReconnect', true);
-        const maxReconnectAttempts = config.get<number>('maxReconnectAttempts', 5);
-        const requestedSubdomain = subdomain || config.get<string>('subdomain', '');
+    /** Set the path to the cloudflared binary (call before startTunnel) */
+    setCloudflaredPath(binPath: string): void {
+        this.cloudflaredPath = binPath;
+    }
+
+    async startTunnel(localPort: number): Promise<TunnelInfo> {
+        if (!this.cloudflaredPath) {
+            throw new Error('cloudflared binary path not set. Call setCloudflaredPath() first.');
+        }
 
         const tunnelId = generateTunnelId();
         
@@ -35,10 +39,7 @@ export class TunnelManager implements vscode.Disposable {
         const client = new TunnelClient({
             tunnelId,
             localPort,
-            relayServer,
-            subdomain: requestedSubdomain,
-            autoReconnect,
-            maxReconnectAttempts
+            cloudflaredPath: this.cloudflaredPath,
         });
 
         // Subscribe to client events
@@ -61,10 +62,6 @@ export class TunnelManager implements vscode.Disposable {
         client.on('request', (request: RequestInfo) => {
             this.addRequest(request);
             this.eventEmitter.emit('requestReceived', request);
-        });
-
-        client.on('reconnecting', (attempt: number) => {
-            this.logger.info(`Tunnel ${tunnelId} reconnecting (attempt ${attempt})`);
         });
 
         this.tunnels.set(tunnelId, client);

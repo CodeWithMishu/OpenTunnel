@@ -1,8 +1,8 @@
 {
   "name": "opentunnel",
   "displayName": "OpenTunnel",
-  "description": "Expose your localhost to the internet instantly — no accounts, no limits, no tracking",
-  "version": "1.0.0",
+  "description": "Expose your localhost to the internet instantly — powered by Cloudflare Tunnel. No accounts, no limits, no tracking.",
+  "version": "2.0.0",
   "publisher": "opentunnel",
   "license": "MIT",
   "icon": "assets/icon.png",
@@ -21,11 +21,13 @@
     "tunnel",
     "localhost",
     "ngrok",
+    "cloudflare",
     "expose",
     "https",
     "public url",
     "share",
-    "development"
+    "development",
+    "cloudflared"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -194,20 +196,10 @@
     "configuration": {
       "title": "OpenTunnel",
       "properties": {
-        "opentunnel.relayServer": {
-          "type": "string",
-          "default": "wss://opentunnel-relay.onrender.com/tunnel",
-          "description": "WebSocket URL of your relay server. The default points to the official OpenTunnel relay. You can deploy your own relay server for complete control."
-        },
         "opentunnel.defaultPort": {
           "type": "number",
           "default": 3000,
           "description": "Default local port to expose when starting a tunnel."
-        },
-        "opentunnel.autoReconnect": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically reconnect if the tunnel connection is lost."
         },
         "opentunnel.showNotifications": {
           "type": "boolean",
@@ -218,16 +210,6 @@
           "type": "boolean",
           "default": true,
           "description": "Log incoming requests in the Recent Requests view."
-        },
-        "opentunnel.maxReconnectAttempts": {
-          "type": "number",
-          "default": 5,
-          "description": "Maximum number of reconnection attempts before giving up."
-        },
-        "opentunnel.subdomain": {
-          "type": "string",
-          "default": "",
-          "description": "Request a specific slug for your tunnel URL (e.g. 'my-app' → /t/my-app). Leave empty for a random name."
         }
       }
     }
@@ -250,7 +232,5 @@
     "typescript": "^5.3.2",
     "@vscode/vsce": "^2.22.0"
   },
-  "dependencies": {
-    "ws": "^8.14.2"
-  }
+  "dependencies": {}
 }

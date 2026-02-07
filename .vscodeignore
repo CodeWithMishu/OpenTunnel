@@ -2,7 +2,6 @@
 .vscode-test/**
 node_modules/**
 src/**
-relay-server/**
 .gitignore
 tsconfig.json
 **/*.ts
@@ -10,3 +9,5 @@ tsconfig.json
 **/*.map
 .eslintrc*
 *.vsix
+CHECKLIST.md
+MARKETPLACE.md

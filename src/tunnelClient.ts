@@ -1,14 +1,13 @@
 /**
- * TunnelClient - WebSocket-based tunnel client
+ * TunnelClient — powered by Cloudflare Quick Tunnels
  * 
- * Connects to the relay server and handles proxying HTTP requests
- * to the local development server.
+ * Spawns `cloudflared tunnel --url http://localhost:PORT` and
+ * parses stdout/stderr to extract the public URL.
+ * No accounts, no API keys, no relay server needed.
  */
 
 import { EventEmitter } from 'events';
-import * as http from 'http';
-import * as https from 'https';
-import WebSocket from 'ws';
+import { ChildProcess, spawn } from 'child_process';
 import { Logger } from './utils/logger';
 
 export interface TunnelInfo {
@@ -34,347 +33,173 @@ export interface RequestInfo {
 export interface TunnelClientOptions {
     tunnelId: string;
     localPort: number;
-    relayServer: string;
-    subdomain?: string;
-    autoReconnect?: boolean;
-    maxReconnectAttempts?: number;
-}
-
-interface RelayMessage {
-    type: string;
-    [key: string]: any;
-}
-
-interface HttpRequest {
-    requestId: string;
-    method: string;
-    path: string;
-    headers: Record<string, string>;
-    body?: string;
+    cloudflaredPath: string;
 }
 
 export class TunnelClient extends EventEmitter {
     private options: TunnelClientOptions;
-    private ws: WebSocket | null = null;
+    private process: ChildProcess | null = null;
     private tunnelInfo: TunnelInfo | null = null;
     private logger: Logger;
-    private reconnectAttempts: number = 0;
-    private isConnecting: boolean = false;
-    private shouldReconnect: boolean = true;
-    private pingInterval: NodeJS.Timeout | null = null;
     private requestCount: number = 0;
+    private logLines: string[] = [];
 
     constructor(options: TunnelClientOptions) {
         super();
-        this.options = {
-            autoReconnect: true,
-            maxReconnectAttempts: 5,
-            ...options
-        };
-        this.logger = new Logger(`TunnelClient:${options.tunnelId.slice(0, 8)}`);
+        this.options = options;
+        this.logger = new Logger(`Tunnel:${options.tunnelId.slice(0, 8)}`);
     }
 
+    /**
+     * Start the cloudflared process and wait for the public URL.
+     */
     async connect(): Promise<TunnelInfo> {
-        if (this.isConnecting) {
-            throw new Error('Already connecting');
-        }
-
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        if (this.process) {
             throw new Error('Already connected');
         }
 
-        this.isConnecting = true;
-        this.shouldReconnect = true;
-
         return new Promise((resolve, reject) => {
-            try {
-                const wsUrl = new URL(this.options.relayServer);
-                wsUrl.searchParams.set('tunnelId', this.options.tunnelId);
-                wsUrl.searchParams.set('port', this.options.localPort.toString());
-                if (this.options.subdomain) {
-                    wsUrl.searchParams.set('subdomain', this.options.subdomain);
+            const args = [
+                'tunnel',
+                '--url', `http://localhost:${this.options.localPort}`,
+                '--no-autoupdate',
+            ];
+
+            this.logger.info(`Starting: ${this.options.cloudflaredPath} ${args.join(' ')}`);
+
+            this.process = spawn(this.options.cloudflaredPath, args, {
+                stdio: ['ignore', 'pipe', 'pipe'],
+                env: { ...process.env, NO_AUTOUPDATE: 'true' },
+            });
+
+            let resolved = false;
+            let output = '';
+
+            const timeout = setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    this.logger.error('Timeout waiting for tunnel URL');
+                    this.kill();
+                    reject(new Error(
+                        'Timeout waiting for cloudflared to start.\n' +
+                        'Make sure a server is running on port ' + this.options.localPort + '.\n\n' +
+                        'Recent output:\n' + output.slice(-300)
+                    ));
+                }
+            }, 30000);
+
+            const handleOutput = (data: Buffer) => {
+                const text = data.toString();
+                output += text;
+
+                for (const line of text.split('\n')) {
+                    const trimmed = line.trim();
+                    if (trimmed) {
+                        this.logLines.push(trimmed);
+                        if (this.logLines.length > 200) { this.logLines.shift(); }
+                    }
                 }
 
-                this.logger.info(`Connecting to relay server: ${wsUrl.toString()}`);
+                // Parse the trycloudflare.com URL
+                const urlMatch = text.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
+                if (urlMatch && !resolved) {
+                    resolved = true;
+                    clearTimeout(timeout);
 
-                this.ws = new WebSocket(wsUrl.toString());
+                    const publicUrl = urlMatch[0];
+                    this.tunnelInfo = {
+                        id: this.options.tunnelId,
+                        localPort: this.options.localPort,
+                        publicUrl,
+                        subdomain: publicUrl.replace('https://', '').replace('.trycloudflare.com', ''),
+                        connectedAt: new Date(),
+                        requestCount: 0,
+                    };
 
-                const connectionTimeout = setTimeout(() => {
-                    if (this.isConnecting) {
-                        this.isConnecting = false;
-                        this.ws?.terminate();
-                        reject(new Error('Connection timeout'));
-                    }
-                }, 30000);
+                    this.logger.info(`Tunnel active: ${publicUrl} → localhost:${this.options.localPort}`);
+                    this.emit('connected', this.tunnelInfo);
+                    resolve(this.tunnelInfo);
+                }
 
-                this.ws.on('open', () => {
-                    this.logger.info('WebSocket connection established');
-                    this.reconnectAttempts = 0;
-                    this.startPingInterval();
-                });
-
-                this.ws.on('message', (data: Buffer) => {
-                    try {
-                        const message: RelayMessage = JSON.parse(data.toString());
-                        this.handleMessage(message, resolve, reject, connectionTimeout);
-                    } catch (error) {
-                        this.logger.error(`Failed to parse message: ${error}`);
-                    }
-                });
-
-                this.ws.on('close', (code: number, reason: Buffer) => {
-                    clearTimeout(connectionTimeout);
-                    this.stopPingInterval();
-                    this.isConnecting = false;
-                    
-                    this.logger.info(`WebSocket closed: ${code} - ${reason.toString()}`);
-                    
-                    if (this.shouldReconnect && this.options.autoReconnect) {
-                        this.attemptReconnect();
-                    } else {
-                        this.emit('disconnected');
-                    }
-                });
-
-                this.ws.on('error', (error: Error) => {
-                    clearTimeout(connectionTimeout);
-                    this.logger.error(`WebSocket error: ${error.message}`);
-                    
-                    if (this.isConnecting) {
-                        this.isConnecting = false;
-                        reject(error);
-                    } else {
-                        this.emit('error', error);
-                    }
-                });
-
-            } catch (error) {
-                this.isConnecting = false;
-                reject(error);
-            }
-        });
-    }
-
-    private handleMessage(
-        message: RelayMessage,
-        resolve: (info: TunnelInfo) => void,
-        reject: (error: Error) => void,
-        connectionTimeout: NodeJS.Timeout
-    ): void {
-        switch (message.type) {
-            case 'connected':
-                clearTimeout(connectionTimeout);
-                this.isConnecting = false;
-                
-                this.tunnelInfo = {
-                    id: this.options.tunnelId,
-                    localPort: this.options.localPort,
-                    publicUrl: message.publicUrl,
-                    subdomain: message.subdomain,
-                    connectedAt: new Date(),
-                    requestCount: 0
-                };
-                
-                this.logger.info(`Tunnel established: ${message.publicUrl}`);
-                this.emit('connected', this.tunnelInfo);
-                resolve(this.tunnelInfo);
-                break;
-
-            case 'error':
-                clearTimeout(connectionTimeout);
-                this.isConnecting = false;
-                const error = new Error(message.message || 'Unknown error');
-                this.emit('error', error);
-                reject(error);
-                break;
-
-            case 'request':
-                this.handleHttpRequest(message as unknown as HttpRequest);
-                break;
-
-            case 'ping':
-                this.send({ type: 'pong' });
-                break;
-
-            default:
-                this.logger.warn(`Unknown message type: ${message.type}`);
-        }
-    }
-
-    private async handleHttpRequest(request: HttpRequest): Promise<void> {
-        const startTime = Date.now();
-        this.requestCount++;
-        
-        if (this.tunnelInfo) {
-            this.tunnelInfo.requestCount = this.requestCount;
-        }
-
-        const requestInfo: RequestInfo = {
-            id: request.requestId,
-            tunnelId: this.options.tunnelId,
-            method: request.method,
-            path: request.path,
-            headers: request.headers,
-            timestamp: new Date()
-        };
-
-        this.logger.info(`Incoming request: ${request.method} ${request.path}`);
-        this.emit('request', requestInfo);
-
-        try {
-            const response = await this.proxyRequest(request);
-            
-            requestInfo.status = response.statusCode;
-            requestInfo.duration = Date.now() - startTime;
-
-            this.send({
-                type: 'response',
-                requestId: request.requestId,
-                statusCode: response.statusCode,
-                headers: response.headers,
-                body: response.body
-            });
-
-        } catch (error) {
-            this.logger.error(`Proxy error: ${error}`);
-            
-            requestInfo.status = 502;
-            requestInfo.duration = Date.now() - startTime;
-
-            this.send({
-                type: 'response',
-                requestId: request.requestId,
-                statusCode: 502,
-                headers: { 'Content-Type': 'text/plain' },
-                body: `Error connecting to localhost:${this.options.localPort}\n\nMake sure your local server is running.`
-            });
-        }
-    }
-
-    private proxyRequest(request: HttpRequest): Promise<{
-        statusCode: number;
-        headers: Record<string, string>;
-        body: string;
-    }> {
-        return new Promise((resolve, reject) => {
-            const url = `http://localhost:${this.options.localPort}${request.path}`;
-            
-            // Prepare headers, removing problematic ones
-            const headers: Record<string, string> = { ...request.headers };
-            delete headers['host'];
-            delete headers['connection'];
-            delete headers['keep-alive'];
-
-            const options: http.RequestOptions = {
-                hostname: 'localhost',
-                port: this.options.localPort,
-                path: request.path,
-                method: request.method,
-                headers
+                this.parseRequestLogs(text);
             };
 
-            const req = http.request(options, (res) => {
-                const chunks: Buffer[] = [];
+            this.process.stdout?.on('data', handleOutput);
+            this.process.stderr?.on('data', handleOutput);
+
+            this.process.on('error', (err) => {
+                this.logger.error(`Process error: ${err.message}`);
+                if (!resolved) {
+                    resolved = true;
+                    clearTimeout(timeout);
+                    reject(new Error(`cloudflared failed: ${err.message}`));
+                }
+                this.emit('error', err);
+            });
+
+            this.process.on('close', (code) => {
+                this.logger.info(`cloudflared exited with code ${code}`);
+                this.process = null;
                 
-                res.on('data', (chunk: Buffer) => {
-                    chunks.push(chunk);
-                });
-
-                res.on('end', () => {
-                    const body = Buffer.concat(chunks);
-                    const headers: Record<string, string> = {};
-                    
-                    for (const [key, value] of Object.entries(res.headers)) {
-                        if (value) {
-                            headers[key] = Array.isArray(value) ? value.join(', ') : value;
-                        }
-                    }
-
-                    // Remove problematic headers
-                    delete headers['transfer-encoding'];
-                    delete headers['connection'];
-
-                    resolve({
-                        statusCode: res.statusCode || 200,
-                        headers,
-                        body: body.toString('base64')
-                    });
-                });
+                if (!resolved) {
+                    resolved = true;
+                    clearTimeout(timeout);
+                    reject(new Error(
+                        `cloudflared exited unexpectedly (code ${code}).\n` +
+                        output.slice(-500)
+                    ));
+                }
+                
+                this.emit('disconnected');
             });
-
-            req.on('error', (error) => {
-                reject(error);
-            });
-
-            req.setTimeout(30000, () => {
-                req.destroy();
-                reject(new Error('Request timeout'));
-            });
-
-            if (request.body) {
-                const bodyBuffer = Buffer.from(request.body, 'base64');
-                req.write(bodyBuffer);
-            }
-
-            req.end();
         });
     }
 
-    private startPingInterval(): void {
-        this.stopPingInterval();
-        this.pingInterval = setInterval(() => {
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                this.ws.ping();
+    /**
+     * Parse request logs from cloudflared output.
+     */
+    private parseRequestLogs(text: string): void {
+        for (const line of text.split('\n')) {
+            // Pattern: "status=200" and "method=GET" and "path=/..."
+            const statusMatch = line.match(/status[=:]?\s*(\d{3})/i);
+            const methodMatch = line.match(/method[=:]?\s*(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)/i);
+            const pathMatch = line.match(/(?:path|url|origin)[=:]?\s*(\S+)/i);
+
+            if (statusMatch && methodMatch) {
+                this.requestCount++;
+                if (this.tunnelInfo) { this.tunnelInfo.requestCount = this.requestCount; }
+                
+                const request: RequestInfo = {
+                    id: `req-${Date.now()}-${this.requestCount}`,
+                    tunnelId: this.options.tunnelId,
+                    method: methodMatch[1],
+                    path: pathMatch ? pathMatch[1] : '/',
+                    headers: {},
+                    status: parseInt(statusMatch[1], 10),
+                    timestamp: new Date(),
+                };
+                this.emit('request', request);
             }
-        }, 30000);
-    }
-
-    private stopPingInterval(): void {
-        if (this.pingInterval) {
-            clearInterval(this.pingInterval);
-            this.pingInterval = null;
-        }
-    }
-
-    private attemptReconnect(): void {
-        if (this.reconnectAttempts >= (this.options.maxReconnectAttempts || 5)) {
-            this.logger.error('Max reconnect attempts reached');
-            this.emit('disconnected');
-            return;
-        }
-
-        this.reconnectAttempts++;
-        const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 30000);
-        
-        this.logger.info(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
-        this.emit('reconnecting', this.reconnectAttempts);
-
-        setTimeout(async () => {
-            try {
-                await this.connect();
-            } catch (error) {
-                this.logger.error(`Reconnect failed: ${error}`);
-            }
-        }, delay);
-    }
-
-    private send(message: RelayMessage): void {
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify(message));
         }
     }
 
     disconnect(): void {
-        this.shouldReconnect = false;
-        this.stopPingInterval();
-        
-        if (this.ws) {
-            this.ws.close(1000, 'Client disconnect');
-            this.ws = null;
-        }
-        
+        this.kill();
         this.tunnelInfo = null;
         this.emit('disconnected');
+    }
+
+    private kill(): void {
+        if (this.process) {
+            try {
+                this.process.kill('SIGTERM');
+                const proc = this.process;
+                setTimeout(() => {
+                    try { proc.kill('SIGKILL'); } catch {}
+                }, 3000);
+            } catch {}
+            this.process = null;
+        }
     }
 
     getTunnelInfo(): TunnelInfo | null {
@@ -382,6 +207,10 @@ export class TunnelClient extends EventEmitter {
     }
 
     isConnected(): boolean {
-        return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+        return this.process !== null && this.tunnelInfo !== null;
+    }
+
+    getRecentLogs(): string[] {
+        return [...this.logLines];
     }
 }
