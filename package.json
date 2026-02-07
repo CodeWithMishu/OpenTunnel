@@ -3,7 +3,7 @@
   "displayName": "OpenTunnel",
   "description": "Expose your localhost to the internet instantly — powered by Cloudflare Tunnel. No accounts, no limits, no tracking.",
   "version": "2.0.0",
-  "publisher": "opentunnel",
+  "publisher": "codewithmishu",
   "license": "MIT",
   "icon": "assets/icon.png",
   "repository": {
