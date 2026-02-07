@@ -597,17 +597,31 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
                 const tunnelBase = `/t/${slug}`;
                 let js = responseBody.toString('utf-8');
                 
-                // Rewrite static import statements: import xxx from "/path"
-                js = js.replace(/from\s+["']\/(?!\/)/g, `from "${tunnelBase}/`);
+                // Rewrite static import statements: import xxx from "/path" or from '/path'
+                js = js.replace(/from\s*(['"])\/(?!\/)/g, `from $1${tunnelBase}/`);
                 
-                // Rewrite dynamic imports: import("/path")
-                js = js.replace(/import\(["']\/(?!\/)/g, `import("${tunnelBase}/`);
+                // Rewrite dynamic imports: import("/path") or import('/path') or import(`/path`)
+                js = js.replace(/import\(\s*(['"`])\/(?!\/)/g, `import($1${tunnelBase}/`);
                 
-                // Rewrite fetch calls in JS: fetch("/api/...")
-                js = js.replace(/fetch\(["']\/(?!\/)/g, `fetch("${tunnelBase}/`);
+                // Rewrite fetch calls: fetch("/api/...") fetch('/api/...') fetch(`/api/...`)
+                // Preserve the original quote type
+                js = js.replace(/fetch\(\s*(['"`])\/(?!\/)/g, `fetch($1${tunnelBase}/`);
                 
-                // Rewrite new URL("/path", import.meta.url) patterns
-                js = js.replace(/new\s+URL\(["']\/(?!\/)/g, `new URL("${tunnelBase}/`);
+                // Rewrite axios calls: axios.get("/...") axios.post("/...")
+                js = js.replace(/axios\.(get|post|put|patch|delete)\(\s*(['"`])\/(?!\/)/g, `axios.$1($2${tunnelBase}/`);
+                
+                // Rewrite new URL("/path", ...) patterns
+                js = js.replace(/new\s+URL\(\s*(['"`])\/(?!\/)/g, `new URL($1${tunnelBase}/`);
+                
+                // Rewrite XMLHttpRequest.open calls: .open("GET", "/api/...")
+                js = js.replace(/\.open\(\s*(['"])([A-Z]+)\1\s*,\s*(['"`])\/(?!\/)/g, `.open($1$2$1, $3${tunnelBase}/`);
+                
+                // Rewrite string assignments like: url = "/api/..."
+                js = js.replace(/(url|href|src|action)\s*=\s*(['"`])\/(?!\/)/gi, `$1 = $2${tunnelBase}/`);
+                
+                // Rewrite template literal URLs: `/api/${id}`
+                // This matches backtick strings that start with /
+                js = js.replace(/`\/(?!\/|t\/)/g, `\`${tunnelBase}/`);
                 
                 // Rewrite sourceMappingURL comments
                 js = js.replace(/\/\/# sourceMappingURL=\/(?!\/)/g, `//# sourceMappingURL=${tunnelBase}/`);
