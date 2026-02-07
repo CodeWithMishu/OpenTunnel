@@ -444,46 +444,31 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
                 const tunnelBase = `/t/${slug}`;
                 let html = responseBody.toString('utf-8');
                 
-                // Rewrite absolute URLs to include tunnel prefix
-                // This handles Flask's url_for() which generates /static/... paths
-                
-                // Rewrite src="/..." and href="/..." attributes (but not href="http..." or href="//...")
-                html = html.replace(/(src|href|action)=["']\/(?!\/)/g, `$1="${tunnelBase}/`);
-                
-                // Rewrite url(/...) in inline styles
-                html = html.replace(/url\(["']?\/(?!\/)/g, `url(${tunnelBase}/`);
-                
-                // Rewrite srcset="/..."
-                html = html.replace(/srcset=["']\/(?!\/)/g, `srcset="${tunnelBase}/`);
-                
-                // Rewrite data-src="/..." (lazy loading)
-                html = html.replace(/data-src=["']\/(?!\/)/g, `data-src="${tunnelBase}/`);
-                
-                // Rewrite fetch/ajax calls in inline scripts: fetch('/...')
-                html = html.replace(/fetch\(["']\/(?!\/)/g, `fetch('${tunnelBase}/`);
-                
-                // Inject a script that patches fetch, XMLHttpRequest, and other APIs
-                // to rewrite absolute URLs at runtime (for dynamic JS requests)
-                const urlRewriteScript = `<script>
+                // Step 1: Inject URL rewriting script FIRST (before any other scripts run)
+                // This must be the VERY FIRST script in the document to catch all dynamic requests
+                const urlRewriteScript = `<script data-opentunnel-injected="true">
 (function() {
+    if (window.__opentunnelInitialized) return;
+    window.__opentunnelInitialized = true;
+    
     var tunnelBase = "${tunnelBase}";
     
     // Helper to rewrite URLs
     function rewriteUrl(url) {
         if (typeof url !== 'string') return url;
-        // Only rewrite absolute paths starting with / but not // (protocol-relative)
-        if (url.startsWith('/') && !url.startsWith('//') && !url.startsWith(tunnelBase)) {
+        // Only rewrite absolute paths starting with / but not // or already prefixed
+        if (url.startsWith('/') && !url.startsWith('//') && !url.startsWith(tunnelBase + '/') && url !== tunnelBase) {
             return tunnelBase + url;
         }
         return url;
     }
     
-    // Patch fetch
+    // Patch fetch BEFORE any code runs
     var originalFetch = window.fetch;
     window.fetch = function(input, init) {
         if (typeof input === 'string') {
             input = rewriteUrl(input);
-        } else if (input instanceof Request) {
+        } else if (input && input.url) {
             input = new Request(rewriteUrl(input.url), input);
         }
         return originalFetch.call(this, input, init);
@@ -491,32 +476,66 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     
     // Patch XMLHttpRequest
     var originalXHROpen = XMLHttpRequest.prototype.open;
-    XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
-        return originalXHROpen.call(this, method, rewriteUrl(url), async !== false, user, password);
+    XMLHttpRequest.prototype.open = function(method, url) {
+        arguments[1] = rewriteUrl(url);
+        return originalXHROpen.apply(this, arguments);
     };
     
     // Patch history.pushState and replaceState for SPA routing
     var originalPushState = history.pushState;
     history.pushState = function(state, title, url) {
-        return originalPushState.call(this, state, title, url ? rewriteUrl(url) : url);
+        if (url) arguments[2] = rewriteUrl(url);
+        return originalPushState.apply(this, arguments);
     };
     var originalReplaceState = history.replaceState;
     history.replaceState = function(state, title, url) {
-        return originalReplaceState.call(this, state, title, url ? rewriteUrl(url) : url);
+        if (url) arguments[2] = rewriteUrl(url);
+        return originalReplaceState.apply(this, arguments);
     };
     
-    // Patch WebSocket for any WS connections the app might make
+    // Patch dynamic imports (for Vite and ES modules)
+    // This is done by wrapping the native import()
+    var originalImport = null;
+    
+    // Patch Image src
+    var originalImageSrc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+    if (originalImageSrc && originalImageSrc.set) {
+        Object.defineProperty(HTMLImageElement.prototype, 'src', {
+            set: function(val) { originalImageSrc.set.call(this, rewriteUrl(val)); },
+            get: originalImageSrc.get
+        });
+    }
+    
+    // Patch script src  
+    var originalScriptSrc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+    if (originalScriptSrc && originalScriptSrc.set) {
+        Object.defineProperty(HTMLScriptElement.prototype, 'src', {
+            set: function(val) { originalScriptSrc.set.call(this, rewriteUrl(val)); },
+            get: originalScriptSrc.get
+        });
+    }
+    
+    // Patch link href (for CSS)
+    var originalLinkHref = Object.getOwnPropertyDescriptor(HTMLLinkElement.prototype, 'href');
+    if (originalLinkHref && originalLinkHref.set) {
+        Object.defineProperty(HTMLLinkElement.prototype, 'href', {
+            set: function(val) { originalLinkHref.set.call(this, rewriteUrl(val)); },
+            get: originalLinkHref.get
+        });
+    }
+    
+    // Patch WebSocket for any WS connections
     var OriginalWebSocket = window.WebSocket;
     window.WebSocket = function(url, protocols) {
-        // Don't rewrite ws:// or wss:// URLs, only path-based ones
-        if (url.startsWith('/') && !url.startsWith('//')) {
+        if (url && url.startsWith('/') && !url.startsWith('//')) {
             var loc = window.location;
             var wsProtocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
             url = wsProtocol + '//' + loc.host + rewriteUrl(url);
         }
-        return new OriginalWebSocket(url, protocols);
+        return protocols ? new OriginalWebSocket(url, protocols) : new OriginalWebSocket(url);
     };
     window.WebSocket.prototype = OriginalWebSocket.prototype;
+    Object.assign(window.WebSocket, OriginalWebSocket);
     
     // Patch EventSource for SSE
     if (window.EventSource) {
@@ -527,45 +546,44 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         window.EventSource.prototype = OriginalEventSource.prototype;
     }
     
-    // Patch form submissions
-    document.addEventListener('submit', function(e) {
-        var form = e.target;
-        if (form.action && form.action.startsWith('/') && !form.action.startsWith('//')) {
-            form.action = rewriteUrl(form.action);
-        }
-    }, true);
-    
-    // Patch anchor clicks for SPA-style navigation
-    document.addEventListener('click', function(e) {
-        var anchor = e.target.closest('a');
-        if (anchor && anchor.href) {
-            var href = anchor.getAttribute('href');
-            if (href && href.startsWith('/') && !href.startsWith('//') && !href.startsWith(tunnelBase)) {
-                anchor.href = rewriteUrl(href);
-            }
-        }
-    }, true);
-    
-    console.log('[OpenTunnel] URL rewriting enabled for tunnel: ' + tunnelBase);
+    console.log('[OpenTunnel] URL rewriting active for:', tunnelBase);
 })();
 </script>`;
                 
-                // Inject the script right after <head> or at the start of <body>
-                if (html.includes('<head>')) {
-                    html = html.replace('<head>', '<head>' + urlRewriteScript);
-                } else if (html.includes('<head ')) {
-                    html = html.replace(/<head([^>]*)>/, '<head$1>' + urlRewriteScript);
-                } else if (html.includes('<body>')) {
-                    html = html.replace('<body>', '<body>' + urlRewriteScript);
-                } else if (html.includes('<body ')) {
-                    html = html.replace(/<body([^>]*)>/, '<body$1>' + urlRewriteScript);
-                }
+                // Step 2: Rewrite ALL absolute URLs in the HTML
+                // Use a more comprehensive regex that handles all quote styles
                 
-                // Also add a base tag for any relative URLs (without leading /)
-                if (html.includes('<head>')) {
-                    html = html.replace('<head>', `<head><base href="${tunnelBase}/">`);
-                } else if (html.includes('<head ')) {
-                    html = html.replace(/<head([^>]*)>/, `<head$1><base href="${tunnelBase}/">`);
+                // Rewrite src="/" href="/" action="/"
+                html = html.replace(/(src|href|action)=(["'])\/(?!\/|${slug})/g, `$1=$2${tunnelBase}/`);
+                
+                // Rewrite srcset="/..."
+                html = html.replace(/srcset=(["'])\/(?!\/)/g, `srcset=$1${tunnelBase}/`);
+                
+                // Rewrite data-src="/..." (lazy loading)
+                html = html.replace(/data-src=(["'])\/(?!\/)/g, `data-src=$1${tunnelBase}/`);
+                
+                // Rewrite url(/...) in inline styles
+                html = html.replace(/url\((["']?)\/(?!\/)/g, `url($1${tunnelBase}/`);
+                
+                // Rewrite content="/" in meta tags (like og:image)
+                html = html.replace(/content=(["'])\/(?!\/)/g, `content=$1${tunnelBase}/`);
+                
+                // Step 3: Inject our script at the VERY beginning of <head>
+                // It MUST run before any other scripts including module scripts
+                if (html.includes('<!DOCTYPE') || html.includes('<!doctype')) {
+                    // Standard HTML - inject after doctype in head
+                    if (html.match(/<head[^>]*>/i)) {
+                        html = html.replace(/<head([^>]*)>/i, `<head$1>${urlRewriteScript}<base href="${tunnelBase}/">`);
+                    } else if (html.match(/<html[^>]*>/i)) {
+                        html = html.replace(/<html([^>]*)>/i, `<html$1><head>${urlRewriteScript}<base href="${tunnelBase}/"></head>`);
+                    }
+                } else if (html.match(/<head[^>]*>/i)) {
+                    html = html.replace(/<head([^>]*)>/i, `<head$1>${urlRewriteScript}<base href="${tunnelBase}/">`);
+                } else if (html.match(/<body[^>]*>/i)) {
+                    html = html.replace(/<body([^>]*)>/i, `<body$1>${urlRewriteScript}`);
+                } else {
+                    // Fallback - prepend to HTML
+                    html = urlRewriteScript + html;
                 }
                 
                 responseBody = Buffer.from(html, 'utf-8');
